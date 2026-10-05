@@ -16,8 +16,16 @@ TERMUX_NDK_VERSION="30"
 export ANDROID_NDK="$HOME/lib/android-ndk-r$TERMUX_NDK_VERSION"
 export NDK="$ANDROID_NDK"
 export TERMUX_PKG_TMPDIR="/tmp"
-ANDROID_NDK_FILE=android-ndk-r${TERMUX_NDK_VERSION}-linux.zip
-ANDROID_NDK_SHA256=753611f410d002cfcd3f3dc2ef49aad532089d3180b436c060a90bf0fcb64df2
+if [ "$(uname)" = Darwin ]; then
+	HOST_TAG=darwin-x86
+	ANDROID_NDK_FILE=android-ndk-r${TERMUX_NDK_VERSION}-darwin.zip
+	ANDROID_NDK_SHA256= # ponytail: unpinned, fill in once known
+else
+	HOST_TAG=linux-x86
+	ANDROID_NDK_FILE=android-ndk-r${TERMUX_NDK_VERSION}-linux.zip
+	ANDROID_NDK_SHA256=753611f410d002cfcd3f3dc2ef49aad532089d3180b436c060a90bf0fcb64df2
+fi
+NPROC=$(getconf _NPROCESSORS_ONLN)
 if [ ! -d "$NDK" ]; then
 	mkdir -p "$NDK"
 	pushd "$NDK/.."
@@ -51,6 +59,8 @@ if [ $BUILD_ARCH_OR_TYPE = arm ]; then
 elif [ $BUILD_ARCH_OR_TYPE = host ]; then
 	CC_HOST_PLATFORM=x86_64-linux-gnu
 fi
+LLVM_HOST_TRIPLE=${CC_HOST_PLATFORM/-/-unknown-}
+[ $BUILD_ARCH_OR_TYPE = host ] && [ $HOST_TAG = darwin-x86 ] && LLVM_HOST_TRIPLE="$(uname -m)-apple-darwin"
 
 # Build tablegen
 mkdir -p build-tblgen
@@ -59,7 +69,7 @@ cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" \
 				"-DLLVM_TARGETS_TO_BUILD=AArch64;ARM;BPF;RISCV;WebAssembly;X86" \
 				"-DLLVM_ENABLE_PROJECTS=clang;mlir" \
 				$(pwd)/../out/llvm-project/llvm
-ninja -j $(nproc) clang-tblgen mlir-tblgen
+ninja -j $NPROC clang-tblgen mlir-tblgen
 export PATH="$(pwd)/bin:$PATH"
 popd # build-tblgen
 
@@ -82,7 +92,7 @@ _EXTRA_CONFIGURE_ARGS="
 -DMLIR_DIR=$(pwd)/out/stage2-install/lib/cmake/mlir
 -DCLANG_TABLEGEN=$(pwd)/build-tblgen/bin/clang-tblgen
 -DMLIR_TABLEGEN_EXE=$(pwd)/build-tblgen/bin/mlir-tblgen
--DLLVM_HOST_TRIPLE=${CC_HOST_PLATFORM/-/-unknown-}
+-DLLVM_HOST_TRIPLE=$LLVM_HOST_TRIPLE
 "
 
 _CONFIGURE_ARGS=()
@@ -92,9 +102,9 @@ if [ "$BUILD_ARCH_OR_TYPE" != "host" ]; then
 	export NDK_STANDALONE_TOOLCHAIN_DIR="$(pwd)/out/flang-toolchain"
 	rm -rf $NDK_STANDALONE_TOOLCHAIN_DIR
 	mkdir -p $NDK_STANDALONE_TOOLCHAIN_DIR/sysroot
-	cp -Rf $(pwd)/out/install/linux-x86/clang-dev/* $NDK_STANDALONE_TOOLCHAIN_DIR/
+	cp -Rf $(pwd)/out/install/$HOST_TAG/clang-dev/* $NDK_STANDALONE_TOOLCHAIN_DIR/
 	cp -Rf $(pwd)/build-host-install/* $NDK_STANDALONE_TOOLCHAIN_DIR/
-	cp -Rf $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/* $NDK_STANDALONE_TOOLCHAIN_DIR/sysroot/
+	cp -Rf $ANDROID_NDK/toolchains/llvm/prebuilt/${HOST_TAG}_64/sysroot/* $NDK_STANDALONE_TOOLCHAIN_DIR/sysroot/
 	cat <<- EOF > "$NDK_STANDALONE_TOOLCHAIN_DIR/bin/${ANDROID_TRIPLE}-flang-new"
 	#!/usr/bin/env bash
 	if [[ "\$1" != "-cpp" && "\$1" != "-fc1" ]]; then
@@ -119,6 +129,15 @@ if [ "$BUILD_ARCH_OR_TYPE" != "host" ]; then
 	_CONFIGURE_ARGS+=("-DCMAKE_Fortran_COMPILER=$NDK_STANDALONE_TOOLCHAIN_DIR/bin/${ANDROID_TRIPLE}-flang-new")
 	_CONFIGURE_ARGS+=("-DCMAKE_Fortran_COMPILER_WORKS=yes")
 	_SRCDIR="$(pwd)/out/llvm-project/runtimes"
+elif [ $HOST_TAG = darwin-x86 ]; then
+	# Mach-O: use the system linker (ld.lld is ELF-only), rpath via @loader_path
+	_CONFIGURE_ARGS+=("-DCMAKE_C_COMPILER=$(pwd)/out/stage2-install/bin/clang")
+	_CONFIGURE_ARGS+=("-DCMAKE_CXX_COMPILER=$(pwd)/out/stage2-install/bin/clang++")
+	_CONFIGURE_ARGS+=("-DCMAKE_OSX_SYSROOT=$(xcrun --show-sdk-path)")
+	_CONFIGURE_ARGS+=("-DCMAKE_CXX_FLAGS=-Wno-deprecated-copy")
+	_CONFIGURE_ARGS+=("-DCMAKE_INSTALL_RPATH=@loader_path/../lib")
+	export DYLD_LIBRARY_PATH="$(pwd)/out/stage2-install/lib:${DYLD_LIBRARY_PATH:-}"
+	_SRCDIR="$(pwd)/out/llvm-project/flang"
 else
 	_CONFIGURE_ARGS+=("-DCMAKE_C_COMPILER=$(pwd)/out/stage2-install/bin/clang")
 	_CONFIGURE_ARGS+=("-DCMAKE_CXX_COMPILER=$(pwd)/out/stage2-install/bin/clang++")

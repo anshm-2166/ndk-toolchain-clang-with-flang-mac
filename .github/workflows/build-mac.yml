@@ -1,0 +1,87 @@
+name: Build Toolchain (macOS)
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - r**
+  pull_request:
+  workflow_dispatch:
+jobs:
+  build:
+    name: Build Toolchain
+    runs-on: macos-15
+    timeout-minutes: 360
+    steps:
+    - name: Checkout Repo
+      uses: actions/checkout@main
+    - name: Install dependencies
+      run: brew install coreutils cmake ninja
+    - name: Build Toolchain
+      run: bash build.sh
+    - name: Upload Build Archive
+      uses: actions/upload-artifact@v4
+      with:
+        name: output-mac-${{ github.sha }}
+        path: ${{ github.workspace }}/output
+  build-flang-host:
+    name: Build Flang (host)
+    runs-on: macos-15
+    needs: build
+    steps:
+    - name: Checkout Repo
+      uses: actions/checkout@main
+    - name: Install dependencies
+      run: brew install coreutils cmake ninja
+    - name: Fetch archives
+      uses: actions/download-artifact@v4
+      with:
+        pattern: output-*mac-${{ github.sha }}
+        merge-multiple: true
+        path: ./
+    - name: Extract Tarballs
+      run: |
+        for f in *.tar.bz2; do tar xf "$f"; done
+        rm -f *.tar.bz2
+    - name: Build Flang
+      env:
+        BUILD_ARCH_OR_TYPE: host
+        FLANG_MAKE_PROCESSES: 3
+      run: bash build-flang.sh
+    - name: Upload Build Archive
+      uses: actions/upload-artifact@v4
+      with:
+        name: output-flang-host-mac-${{ github.sha }}
+        path: ${{ github.workspace }}/output-flang
+  build-flang-runtime:
+    name: Build Flang (${{ matrix.target_arch_or_type }})
+    runs-on: macos-15
+    needs: [build, build-flang-host]
+    strategy:
+      matrix:
+        target_arch_or_type: [aarch64, x86_64]
+    steps:
+    - name: Checkout Repo
+      uses: actions/checkout@main
+    - name: Install dependencies
+      run: brew install coreutils cmake ninja
+    - name: Fetch archives
+      uses: actions/download-artifact@v4
+      with:
+        pattern: output-*mac-${{ github.sha }}
+        merge-multiple: true
+        path: ./
+    - name: Extract Tarballs
+      run: |
+        for f in *.tar.bz2; do tar xf "$f"; done
+        rm -f *.tar.bz2
+    - name: Build Flang
+      env:
+        BUILD_ARCH_OR_TYPE: ${{ matrix.target_arch_or_type }}
+        FLANG_MAKE_PROCESSES: 3
+      run: bash build-flang.sh
+    - name: Upload Build Archive
+      uses: actions/upload-artifact@v4
+      with:
+        name: output-flang-${{ matrix.target_arch_or_type }}-mac-${{ github.sha }}
+        path: ${{ github.workspace }}/output-flang
