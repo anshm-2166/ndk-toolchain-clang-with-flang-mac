@@ -23,7 +23,9 @@ fi
 mkdir -p llvm-toolchain && cd llvm-toolchain
 repo init -u https://android.googlesource.com/platform/manifest
 # Modified the manifest xml, to ensure only contain current host components
-sed -E "s/(^.*($SKIP_HOSTS).*$)/<!-- \\1 -->/g" ../manifest_16134705.xml > .repo/manifests/test.xml
+# (llvm_android's paths.py reads prebuilts/python/linux-x86 even on darwin, so keep it)
+sed -E -e "s/(^.*($SKIP_HOSTS).*$)/<!-- \\1 -->/g" \
+	-e 's#^<!-- (.*prebuilts/python/linux-x86.*) -->$#\1#' ../manifest_16134705.xml > .repo/manifests/test.xml
 repo init -m test.xml
 repo sync -c
 
