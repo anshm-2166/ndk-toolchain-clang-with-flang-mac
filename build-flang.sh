@@ -134,9 +134,14 @@ elif [ $HOST_TAG = darwin-x86 ]; then
 	_CONFIGURE_ARGS+=("-DCMAKE_C_COMPILER=$(pwd)/out/stage2-install/bin/clang")
 	_CONFIGURE_ARGS+=("-DCMAKE_CXX_COMPILER=$(pwd)/out/stage2-install/bin/clang++")
 	_CONFIGURE_ARGS+=("-DCMAKE_OSX_SYSROOT=$(xcrun --show-sdk-path)")
+	# stage2 LLVM is built without assertions; flang must match or the ABI differs
+	_EXTRA_CONFIGURE_ARGS="${_EXTRA_CONFIGURE_ARGS/-DLLVM_ENABLE_ASSERTIONS=On/-DLLVM_ENABLE_ASSERTIONS=Off}"
+	# Mach-O does not coalesce LLVM template pass keys across libLLVM.dylib and flang, so link LLVM statically
+	_EXTRA_CONFIGURE_ARGS="${_EXTRA_CONFIGURE_ARGS/-DLLVM_LINK_LLVM_DYLIB=ON/-DLLVM_LINK_LLVM_DYLIB=OFF}"
+	_CONFIGURE_ARGS+=("-DCMAKE_AR=$(pwd)/out/stage2-install/bin/llvm-ar")
+	_CONFIGURE_ARGS+=("-DCMAKE_RANLIB=$(pwd)/out/stage2-install/bin/llvm-ranlib")
 	_CONFIGURE_ARGS+=("-DCMAKE_CXX_FLAGS=-Wno-deprecated-copy")
 	_CONFIGURE_ARGS+=("-DCMAKE_INSTALL_RPATH=@loader_path/../lib")
-	export DYLD_LIBRARY_PATH="$(pwd)/out/stage2-install/lib:${DYLD_LIBRARY_PATH:-}"
 	_SRCDIR="$(pwd)/out/llvm-project/flang"
 else
 	_CONFIGURE_ARGS+=("-DCMAKE_C_COMPILER=$(pwd)/out/stage2-install/bin/clang")

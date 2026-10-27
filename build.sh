@@ -21,7 +21,7 @@ if [ "${CI-false}" = true ]; then
 	git config --global color.ui false
 fi
 mkdir -p llvm-toolchain && cd llvm-toolchain
-repo init -u https://android.googlesource.com/platform/manifest
+repo init --depth=1 -u https://android.googlesource.com/platform/manifest
 # Modified the manifest xml, to ensure only contain current host components
 # (llvm_android's paths.py reads prebuilts/python/linux-x86 even on darwin, so keep it)
 sed -E -e "s/(^.*($SKIP_HOSTS).*$)/<!-- \\1 -->/g" \
